@@ -1,9 +1,9 @@
-output "rds_cluster_endpoint" {
+output "cluster_endpoint" {
   description = "Aurora MySQL cluster endpoint"
-  value       = module.aurora_mysql.this_rds_cluster_endpoint
+  value       = module.mysql_cluster.cluster_endpoint
 }
 
-output "rds_cluster_port" {
+output "cluster_port" {
   description = "Aurora MySQL cluster port"
-  value       = module.aurora_mysql.this_rds_cluster_port
+  value       = module.mysql_cluster.cluster_port
 }

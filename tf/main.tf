@@ -1,81 +1,66 @@
 provider "aws" {
-  region = "us-east-1" # Change to your preferred region
+  region = "us-east-1"
 }
 
-# Get the current account ID
-data "aws_caller_identity" "current" {}
-
-# Fetch Subnets
-data "aws_subnet_ids" "main" {
-  vpc_id = var.vpc_id
+data "http" "myip" {
+  url = "https://ipv4.icanhazip.com"
 }
 
-# KMS Module for Key Management
-module "kms" {
-  source  = "terraform-aws-modules/kms/aws"
-  version = "~> 1.0"
-
-  description             = "KMS key for Aurora MySQL encryption"
-  enable_key_rotation     = true
-  deletion_window_in_days = 10
-
-  key_users = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/test-user"]
+data "aws_vpc" "default" {
+  default = true
 }
 
-# RDS Subnet Group Module
-module "rds_subnet_group" {
-  source  = "terraform-aws-modules/rds/aws//modules/db-subnet-group"
-  version = "~> 5.0"
-
-  name       = "aurora-subnet-group"
-  subnet_ids = data.aws_subnet_ids.main.ids # Use appropriate subnets
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
 }
 
-# Security Group for Aurora
-module "aurora_security_group" {
-  source  = "terraform-aws-modules/security-group/aws"
-  version = "~> 5.0"
-
-  name        = "aurora-sg"
-  description = "Security group for Aurora MySQL"
-  vpc_id      = var.vpc_id
-
-  ingress_with_cidr_blocks = [
-    {
-      from_port   = 3306
-      to_port     = 3306
-      protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"] # Replace with your IP range for testing
-    },
-  ]
+data "aws_security_group" "default" {
+  vpc_id = data.aws_vpc.default.id
+  name   = "default"
 }
 
-# Aurora RDS Module
-module "aurora_mysql" {
-  source  = "terraform-aws-modules/rds-aurora/aws"
-  version = "~> 7.0"
+resource "aws_vpc_security_group_ingress_rule" "this" {
+  security_group_id = data.aws_security_group.default.id
 
-  name           = "aurora-test-cluster"
+  cidr_ipv4   = "${chomp(data.http.myip.response_body)}/32"
+  from_port   = 3306
+  ip_protocol = "tcp"
+  to_port     = 3306
+}
+
+
+module "mysql_cluster" {
+  source = "terraform-aws-modules/rds-aurora/aws"
+
+  name           = "test-aurora-db-mysql"
   engine         = "aurora-mysql"
-  engine_version = "5.7.mysql_aurora.2.10.2"
-  instance_class = "db.t3.medium" # Smallest instance class for testing
-  vpc_id         = var.vpc_id
-  subnets        = data.aws_subnet_ids.main.ids
+  engine_version = "8.0"
+  instance_class = "db.t3.medium"
+  instances = {
+    one = { publicly_accessible = true }
+  }
 
-  storage_encrypted = true
-  kms_key_id        = module.kms.key_arn
+  create_db_subnet_group = true
+  create_security_group  = false
+  create_monitoring_role = false
 
-  db_subnet_group_name   = module.rds_subnet_group.db_subnet_group_name
-  vpc_security_group_ids = [module.aurora_security_group.security_group_id]
+  manage_master_user_password = false
+  master_username             = var.master_username
+  master_password             = var.master_password
+  database_name               = var.database_name
 
-  # For testing, use lower backup retention and replicas
-  backup_retention_period = 1
-  preferred_backup_window = "07:00-09:00"
-  apply_immediately       = true
+  subnets                = data.aws_subnets.default.ids
+  vpc_security_group_ids = [data.aws_security_group.default.id]
 
-  # replica_count = 1
+  storage_encrypted   = true
+  apply_immediately   = true
+  skip_final_snapshot = true
 
-  master_username = var.master_username
-  master_password = var.master_password
-  database_name   = var.database_name
+  tags = {
+    Environment = "dev"
+    Terraform   = "true"
+  }
 }

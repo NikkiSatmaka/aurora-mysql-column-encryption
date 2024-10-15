@@ -15,8 +15,3 @@ variable "database_name" {
   type        = string
   default     = "test_db"
 }
-
-variable "vpc_id" {
-  description = "VPC ID"
-  type        = string
-}
